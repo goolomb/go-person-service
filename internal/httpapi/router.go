@@ -2,11 +2,12 @@ package httpapi
 
 import "github.com/go-chi/chi/v5"
 
-func NewRouter() chi.Router {
+func NewRouter(personService PersonSaver) chi.Router {
 	router := chi.NewRouter()
+	handler := NewHandler(personService)
 
 	router.Get("/health", HealthHandler)
-	router.Post("/save", SaveHandler)
+	router.Post("/save", handler.SaveHandler)
 	router.Get("/{id}", GetByIDHandler)
 
 	return router
