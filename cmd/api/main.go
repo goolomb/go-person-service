@@ -4,7 +4,9 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"path/filepath"
 
+	"github.com/goolomb/go-person-service/internal/config"
 	"github.com/goolomb/go-person-service/internal/httpapi"
 	"github.com/goolomb/go-person-service/internal/service"
 	"github.com/goolomb/go-person-service/internal/storage"
@@ -13,12 +15,18 @@ import (
 func main() {
 	fmt.Println("Starting person service...")
 
-	if err := os.MkdirAll("./data", 0755); err != nil {
+	cfg, err := config.Load()
+	if err != nil {
+		fmt.Printf("failed to load config: %v\n", err)
+		return
+	}
+
+	if err := os.MkdirAll(filepath.Dir(cfg.DBPath), 0755); err != nil {
 		fmt.Printf("failed to create data directory: %v\n", err)
 		return
 	}
 
-	db, err := storage.OpenSQLiteDB("./data/app.db")
+	db, err := storage.OpenSQLiteDB(cfg.DBPath)
 	if err != nil {
 		fmt.Printf("failed to open database: %v\n", err)
 		return
@@ -27,7 +35,7 @@ func main() {
 	repository := storage.NewPersonRepository(db)
 	personService := service.NewPersonService(repository)
 	router := httpapi.NewRouter(personService)
-	if err := http.ListenAndServe(":8080", router); err != nil {
+	if err := http.ListenAndServe(":"+cfg.HTTPPort, router); err != nil {
 		fmt.Printf("server stopped: %v\n", err)
 	}
 }
