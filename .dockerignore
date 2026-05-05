@@ -1,0 +1,8 @@
+.git
+.DS_Store
+data/
+*.db
+*.sqlite
+*.sqlite3
+person-service
+go-person-service
