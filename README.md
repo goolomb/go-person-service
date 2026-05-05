@@ -85,6 +85,13 @@ With custom configuration:
 HTTP_PORT=9090 DB_PATH=/tmp/person-service.db go run ./cmd/api
 ```
 
+## Build Binary
+
+```sh
+go build -o person-service ./cmd/api
+./person-service
+```
+
 ## Docker
 
 Build:
