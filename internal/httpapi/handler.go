@@ -3,10 +3,12 @@ package httpapi
 import (
 	"encoding/json"
 	"net/http"
+
+	"github.com/goolomb/go-person-service/internal/service"
 )
 
 type PersonSaver interface {
-	SavePerson(request SavePersonRequest) (PersonResponse, map[string]string)
+	SavePerson(input service.SavePersonInput) (service.Person, map[string]string)
 }
 
 type Handler struct {
@@ -35,7 +37,12 @@ func (h Handler) SaveHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	response, validationErrors := h.personService.SavePerson(request)
+	person, validationErrors := h.personService.SavePerson(service.SavePersonInput{
+		ExternalID:  request.ExternalID,
+		Name:        request.Name,
+		Email:       request.Email,
+		DateOfBirth: request.DateOfBirth,
+	})
 	if len(validationErrors) > 0 {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusBadRequest)
@@ -45,6 +52,13 @@ func (h Handler) SaveHandler(w http.ResponseWriter, r *http.Request) {
 			Fields:  validationErrors,
 		})
 		return
+	}
+
+	response := PersonResponse{
+		ExternalID:  person.ExternalID,
+		Name:        person.Name,
+		Email:       person.Email,
+		DateOfBirth: person.DateOfBirth,
 	}
 
 	w.Header().Set("Content-Type", "application/json")

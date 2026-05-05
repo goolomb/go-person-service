@@ -1,38 +1,52 @@
 package service
 
 import (
+	"net/mail"
 	"strings"
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/goolomb/go-person-service/internal/httpapi"
 )
+
+type SavePersonInput struct {
+	ExternalID  string
+	Name        string
+	Email       string
+	DateOfBirth string
+}
+
+type Person struct {
+	ExternalID  string
+	Name        string
+	Email       string
+	DateOfBirth string
+}
 
 type PersonService struct{}
 
-func (s PersonService) SavePerson(request httpapi.SavePersonRequest) (httpapi.PersonResponse, map[string]string) {
+func (s PersonService) SavePerson(input SavePersonInput) (Person, map[string]string) {
 	fields := make(map[string]string)
 
-	externalID := strings.TrimSpace(request.ExternalID)
+	externalID := strings.TrimSpace(input.ExternalID)
 	if externalID == "" {
 		fields["external_id"] = "external_id is required"
 	} else if _, err := uuid.Parse(externalID); err != nil {
 		fields["external_id"] = "external_id must be a valid UUID"
 	}
 
-	name := strings.TrimSpace(request.Name)
+	name := strings.TrimSpace(input.Name)
 	if name == "" {
 		fields["name"] = "name is required"
 	}
 
-	email := strings.TrimSpace(request.Email)
+	email := strings.TrimSpace(input.Email)
 	if email == "" {
 		fields["email"] = "email is required"
 	} else if !isValidEmail(email) {
 		fields["email"] = "email must be a valid email address"
 	}
 
-	dateOfBirth := strings.TrimSpace(request.DateOfBirth)
+	dateOfBirth := strings.TrimSpace(input.DateOfBirth)
 	if dateOfBirth == "" {
 		fields["date_of_birth"] = "date_of_birth is required"
 	} else if _, err := time.Parse(time.RFC3339, dateOfBirth); err != nil {
@@ -40,10 +54,10 @@ func (s PersonService) SavePerson(request httpapi.SavePersonRequest) (httpapi.Pe
 	}
 
 	if len(fields) > 0 {
-		return httpapi.PersonResponse{}, fields
+		return Person{}, fields
 	}
 
-	return httpapi.PersonResponse{
+	return Person{
 		ExternalID:  externalID,
 		Name:        name,
 		Email:       email,
@@ -56,10 +70,15 @@ func isValidEmail(email string) bool {
 		return false
 	}
 
-	local, domain, found := strings.Cut(email, "@")
-	if !found || strings.Contains(domain, "@") {
+	address, err := mail.ParseAddress(email)
+	if err != nil {
 		return false
 	}
 
-	return local != "" && domain != "" && strings.Contains(domain, ".")
+	if address.Name != "" || address.Address != email {
+		return false
+	}
+
+	_, domain, found := strings.Cut(address.Address, "@")
+	return found && strings.Contains(domain, ".")
 }
