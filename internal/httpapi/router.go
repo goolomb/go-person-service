@@ -8,7 +8,7 @@ func NewRouter(personService PersonSaver) chi.Router {
 
 	router.Get("/health", HealthHandler)
 	router.Post("/save", handler.SaveHandler)
-	router.Get("/{id}", GetByIDHandler)
+	router.Get("/{id}", handler.GetByIDHandler)
 
 	return router
 }

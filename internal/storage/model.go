@@ -11,3 +11,7 @@ type PersonModel struct {
 	CreatedAt   time.Time
 	UpdatedAt   time.Time
 }
+
+func (PersonModel) TableName() string {
+	return "persons"
+}
