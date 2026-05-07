@@ -24,6 +24,13 @@ type Person struct {
 	DateOfBirth string
 }
 
+type validatedSavePersonInput struct {
+	ExternalID  string
+	Name        string
+	Email       string
+	DateOfBirth time.Time
+}
+
 var (
 	ErrValidation    = errors.New("validation error")
 	ErrAlreadyExists = errors.New("person already exists")
@@ -44,47 +51,12 @@ func NewPersonService(repo PersonRepository) *PersonService {
 }
 
 func (s PersonService) SavePerson(input SavePersonInput) (Person, map[string]string, error) {
-	fields := make(map[string]string)
-
-	externalID := strings.TrimSpace(input.ExternalID)
-	if externalID == "" {
-		fields["external_id"] = "external_id is required"
-	} else if _, err := uuid.Parse(externalID); err != nil {
-		fields["external_id"] = "external_id must be a valid UUID"
-	}
-
-	name := strings.TrimSpace(input.Name)
-	if name == "" {
-		fields["name"] = "name is required"
-	}
-
-	email := strings.TrimSpace(input.Email)
-	if email == "" {
-		fields["email"] = "email is required"
-	} else if !isValidEmail(email) {
-		fields["email"] = "email must be a valid email address"
-	}
-
-	dateOfBirth := strings.TrimSpace(input.DateOfBirth)
-	var parsedDateOfBirth time.Time
-	if dateOfBirth == "" {
-		fields["date_of_birth"] = "date_of_birth is required"
-	} else if parsed, err := time.Parse(time.RFC3339, dateOfBirth); err != nil {
-		fields["date_of_birth"] = "date_of_birth must be a valid RFC3339 timestamp"
-	} else {
-		parsedDateOfBirth = parsed
-	}
-
-	if len(fields) > 0 {
+	validated, fields := validateAndNormalizeSaveInput(input)
+	if fields != nil {
 		return Person{}, fields, ErrValidation
 	}
 
-	created, err := s.repository.CreatePerson(storage.PersonModel{
-		ExternalID:  externalID,
-		Name:        name,
-		Email:       email,
-		DateOfBirth: parsedDateOfBirth,
-	})
+	created, err := s.repository.CreatePerson(personModelFromValidatedInput(validated))
 	if err != nil {
 		if errors.Is(err, storage.ErrAlreadyExists) {
 			return Person{}, nil, ErrAlreadyExists
@@ -101,7 +73,7 @@ func (s PersonService) GetPersonByExternalID(id string) (Person, map[string]stri
 	fields := make(map[string]string)
 	if externalID == "" {
 		fields["id"] = "id is required"
-	} else if _, err := uuid.Parse(externalID); err != nil {
+	} else if !isValidUUID(externalID) {
 		fields["id"] = "id must be a valid UUID"
 	}
 
@@ -121,6 +93,64 @@ func (s PersonService) GetPersonByExternalID(id string) (Person, map[string]stri
 	return personFromModel(person), nil, nil
 }
 
+func validateAndNormalizeSaveInput(input SavePersonInput) (validatedSavePersonInput, map[string]string) {
+	fields := make(map[string]string)
+
+	externalID := strings.TrimSpace(input.ExternalID)
+	if externalID == "" {
+		fields["external_id"] = "external_id is required"
+	} else if !isValidUUID(externalID) {
+		fields["external_id"] = "external_id must be a valid UUID"
+	}
+
+	name := strings.TrimSpace(input.Name)
+	if name == "" {
+		fields["name"] = "name is required"
+	}
+
+	email := strings.TrimSpace(input.Email)
+	if email == "" {
+		fields["email"] = "email is required"
+	} else if !isValidEmail(email) {
+		fields["email"] = "email must be a valid email address"
+	}
+
+	parsedDateOfBirth, dateOfBirthError := parseRequiredDateOfBirth(input.DateOfBirth)
+	if dateOfBirthError != "" {
+		fields["date_of_birth"] = dateOfBirthError
+	}
+
+	if len(fields) > 0 {
+		return validatedSavePersonInput{}, fields
+	}
+
+	return validatedSavePersonInput{
+		ExternalID:  externalID,
+		Name:        name,
+		Email:       email,
+		DateOfBirth: parsedDateOfBirth,
+	}, nil
+}
+
+func parseRequiredDateOfBirth(value string) (time.Time, string) {
+	dateOfBirth := strings.TrimSpace(value)
+	if dateOfBirth == "" {
+		return time.Time{}, "date_of_birth is required"
+	}
+
+	parsed, err := time.Parse(time.RFC3339, dateOfBirth)
+	if err != nil {
+		return time.Time{}, "date_of_birth must be a valid RFC3339 timestamp"
+	}
+
+	return parsed, ""
+}
+
+func isValidUUID(value string) bool {
+	_, err := uuid.Parse(value)
+	return err == nil
+}
+
 func isValidEmail(email string) bool {
 	if strings.ContainsAny(email, " \t\r\n") {
 		return false
@@ -137,6 +167,15 @@ func isValidEmail(email string) bool {
 
 	_, domain, found := strings.Cut(address.Address, "@")
 	return found && strings.Contains(domain, ".")
+}
+
+func personModelFromValidatedInput(input validatedSavePersonInput) storage.PersonModel {
+	return storage.PersonModel{
+		ExternalID:  input.ExternalID,
+		Name:        input.Name,
+		Email:       input.Email,
+		DateOfBirth: input.DateOfBirth,
+	}
 }
 
 func personFromModel(person storage.PersonModel) Person {

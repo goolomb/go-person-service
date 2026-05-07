@@ -17,6 +17,72 @@ import (
 )
 
 func TestApplicationEndToEnd(t *testing.T) {
+	client, baseURL := startTestApp(t)
+
+	externalID := "3f93df6d-ff51-4740-9d27-fc6b2f30281c"
+	body := fmt.Sprintf(`{
+		"external_id": %q,
+		"name": "Jane Doe",
+		"email": "jane@example.com",
+		"date_of_birth": "1990-01-02T03:04:05Z"
+	}`, externalID)
+	expected := personResponse{
+		ExternalID:  externalID,
+		Name:        "Jane Doe",
+		Email:       "jane@example.com",
+		DateOfBirth: "1990-01-02T03:04:05Z",
+	}
+
+	createResp := createPerson(t, client, baseURL, body)
+	defer createResp.Body.Close()
+	if createResp.StatusCode != http.StatusCreated {
+		t.Fatalf("expected POST /save status 201, got %d", createResp.StatusCode)
+	}
+	if location := createResp.Header.Get("Location"); location != "/"+externalID {
+		t.Fatalf("expected Location %q, got %q", "/"+externalID, location)
+	}
+	if created := decodePersonResponse(t, createResp); created != expected {
+		t.Fatalf("expected created response %+v, got %+v", expected, created)
+	}
+
+	getResp := getPerson(t, client, baseURL, externalID)
+	defer getResp.Body.Close()
+	if getResp.StatusCode != http.StatusOK {
+		t.Fatalf("expected GET /{id} status 200, got %d", getResp.StatusCode)
+	}
+	if saved := decodePersonResponse(t, getResp); saved != expected {
+		t.Fatalf("expected saved response %+v, got %+v", expected, saved)
+	}
+
+	duplicateResp := createPerson(t, client, baseURL, body)
+	defer duplicateResp.Body.Close()
+	if duplicateResp.StatusCode != http.StatusConflict {
+		t.Fatalf("expected duplicate POST /save status 409, got %d", duplicateResp.StatusCode)
+	}
+
+	unknownResp := getPerson(t, client, baseURL, "f965f31d-ef51-446d-b5b0-41c7ab77e1d0")
+	defer unknownResp.Body.Close()
+	if unknownResp.StatusCode != http.StatusNotFound {
+		t.Fatalf("expected GET unknown UUID status 404, got %d", unknownResp.StatusCode)
+	}
+
+	invalidResp := getPerson(t, client, baseURL, "not-a-uuid")
+	defer invalidResp.Body.Close()
+	if invalidResp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("expected GET invalid UUID status 400, got %d", invalidResp.StatusCode)
+	}
+}
+
+type personResponse struct {
+	ExternalID  string `json:"external_id"`
+	Name        string `json:"name"`
+	Email       string `json:"email"`
+	DateOfBirth string `json:"date_of_birth"`
+}
+
+func startTestApp(t *testing.T) (*http.Client, string) {
+	t.Helper()
+
 	root, err := filepath.Abs("..")
 	if err != nil {
 		t.Fatalf("resolve project root: %v", err)
@@ -46,7 +112,7 @@ func TestApplicationEndToEnd(t *testing.T) {
 	if err := cmd.Start(); err != nil {
 		t.Fatalf("start app: %v", err)
 	}
-	defer func() {
+	t.Cleanup(func() {
 		if cmd.Process != nil {
 			_ = syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
 		}
@@ -64,80 +130,12 @@ func TestApplicationEndToEnd(t *testing.T) {
 			t.Logf("stdout:\n%s", stdout.String())
 			t.Logf("stderr:\n%s", stderr.String())
 		}
-	}()
+	})
 
 	client := &http.Client{Timeout: 2 * time.Second}
 	waitForHealth(t, client, baseURL)
 
-	externalID := "3f93df6d-ff51-4740-9d27-fc6b2f30281c"
-	body := fmt.Sprintf(`{
-		"external_id": %q,
-		"name": "Jane Doe",
-		"email": "jane@example.com",
-		"date_of_birth": "1990-01-02T03:04:05Z"
-	}`, externalID)
-
-	createResp := doRequest(t, client, http.MethodPost, baseURL+"/save", body)
-	defer createResp.Body.Close()
-	if createResp.StatusCode != http.StatusCreated {
-		t.Fatalf("expected POST /save status 201, got %d", createResp.StatusCode)
-	}
-	if location := createResp.Header.Get("Location"); location != "/"+externalID {
-		t.Fatalf("expected Location %q, got %q", "/"+externalID, location)
-	}
-
-	var created personResponse
-	if err := json.NewDecoder(createResp.Body).Decode(&created); err != nil {
-		t.Fatalf("decode POST /save response: %v", err)
-	}
-	expected := personResponse{
-		ExternalID:  externalID,
-		Name:        "Jane Doe",
-		Email:       "jane@example.com",
-		DateOfBirth: "1990-01-02T03:04:05Z",
-	}
-	if created != expected {
-		t.Fatalf("expected created response %+v, got %+v", expected, created)
-	}
-
-	getResp := doRequest(t, client, http.MethodGet, baseURL+"/"+externalID, "")
-	defer getResp.Body.Close()
-	if getResp.StatusCode != http.StatusOK {
-		t.Fatalf("expected GET /{id} status 200, got %d", getResp.StatusCode)
-	}
-
-	var saved personResponse
-	if err := json.NewDecoder(getResp.Body).Decode(&saved); err != nil {
-		t.Fatalf("decode GET /{id} response: %v", err)
-	}
-	if saved != expected {
-		t.Fatalf("expected saved response %+v, got %+v", expected, saved)
-	}
-
-	duplicateResp := doRequest(t, client, http.MethodPost, baseURL+"/save", body)
-	defer duplicateResp.Body.Close()
-	if duplicateResp.StatusCode != http.StatusConflict {
-		t.Fatalf("expected duplicate POST /save status 409, got %d", duplicateResp.StatusCode)
-	}
-
-	unknownResp := doRequest(t, client, http.MethodGet, baseURL+"/f965f31d-ef51-446d-b5b0-41c7ab77e1d0", "")
-	defer unknownResp.Body.Close()
-	if unknownResp.StatusCode != http.StatusNotFound {
-		t.Fatalf("expected GET unknown UUID status 404, got %d", unknownResp.StatusCode)
-	}
-
-	invalidResp := doRequest(t, client, http.MethodGet, baseURL+"/not-a-uuid", "")
-	defer invalidResp.Body.Close()
-	if invalidResp.StatusCode != http.StatusBadRequest {
-		t.Fatalf("expected GET invalid UUID status 400, got %d", invalidResp.StatusCode)
-	}
-}
-
-type personResponse struct {
-	ExternalID  string `json:"external_id"`
-	Name        string `json:"name"`
-	Email       string `json:"email"`
-	DateOfBirth string `json:"date_of_birth"`
+	return client, baseURL
 }
 
 func freeTCPPort(t *testing.T) string {
@@ -169,6 +167,29 @@ func waitForHealth(t *testing.T, client *http.Client, baseURL string) {
 	}
 
 	t.Fatalf("app did not become healthy before timeout")
+}
+
+func createPerson(t *testing.T, client *http.Client, baseURL string, body string) *http.Response {
+	t.Helper()
+
+	return doRequest(t, client, http.MethodPost, baseURL+"/save", body)
+}
+
+func getPerson(t *testing.T, client *http.Client, baseURL string, externalID string) *http.Response {
+	t.Helper()
+
+	return doRequest(t, client, http.MethodGet, baseURL+"/"+externalID, "")
+}
+
+func decodePersonResponse(t *testing.T, resp *http.Response) personResponse {
+	t.Helper()
+
+	var decoded personResponse
+	if err := json.NewDecoder(resp.Body).Decode(&decoded); err != nil {
+		t.Fatalf("decode person response: %v", err)
+	}
+
+	return decoded
 }
 
 func doRequest(t *testing.T, client *http.Client, method string, url string, body string) *http.Response {

@@ -2,7 +2,7 @@ package httpapi
 
 import "github.com/go-chi/chi/v5"
 
-func NewRouter(personService PersonSaver) chi.Router {
+func NewRouter(personService PersonService) chi.Router {
 	router := chi.NewRouter()
 	handler := NewHandler(personService)
 
